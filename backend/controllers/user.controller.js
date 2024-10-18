@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import getDataUri from "../utils/datauri.js";
 import cloudinary from "../utils/cloudinary.js";
+import { Post } from "../models/post.model.js";
 
 export const register = async (req, res) => {
     try {
@@ -79,6 +80,16 @@ export const login = async (req, res) => {
                 return null;
             })
         )
+
+
+        const bookmarkPosts = await Promise.all(
+            user.bookmarks.map( async (postId) => {
+                const post = await Post.findById(postId);
+               
+                return post;
+            })
+        )
+
         user = {
             _id: user._id,
             username: user.username,
@@ -87,7 +98,8 @@ export const login = async (req, res) => {
             bio: user.bio,
             followers: user.followers,
             following: user.following,
-            posts: populatedPosts
+            posts: populatedPosts,
+            bookmarks:bookmarkPosts
         }
         return res.cookie('token', token, { httpOnly: true, sameSite: 'strict', maxAge: 1 * 24 * 60 * 60 * 1000 }).json({
             message: `Welcome back ${user.username}`,
@@ -113,48 +125,49 @@ export const logout=async(_,res)=>{
 };
 
 
-export const getProfile=async(req,res)=>{
+export const getProfile = async (req, res) => {
     try {
-        const userId=req.params.id;
-
-        let user=await User.findById(userId).select('-password');
+        const userId = req.params.id;
+        let user = await User.findById(userId).populate({path:'posts', createdAt:-1}).populate('bookmarks');
         return res.status(200).json({
             user,
-            success:true
+            success: true
         });
     } catch (error) {
         console.log(error);
     }
 };
 
-
-export const editProfile=async(req,res)=>{
+export const editProfile = async (req, res) => {
     try {
-        const userId=req.id;
-        const {bio,gender}=req.body;
-        const profilePicture=req.file;
-       let cloudResponse;
-       if(profilePicture){
-        const fileUri=getDataUri(profilePicture);
-        cloudResponse=await cloudinary.uploader.upload(fileUri);
-       }
+        const userId = req.id;
+        const { bio, gender } = req.body;
+        const profilePicture = req.file;
+        let cloudResponse;
 
-       const user=await User.findById(userId).select('-password');
-       if(!user){
-        res.status(404).json({
-            message:"User not found",
-            success:false
-        })
-       };
-       if(bio) user.bio=bio;
-       if(gender) user.gender=gender;
-       if(profilePicture) user.profilePicture=cloudResponse.secure_url;
-       await user.save();
-       return res.status(200).json({
-        message:"Profile updated",
-        success:true,
-        user
-       });
+        if (profilePicture) {
+            const fileUri = getDataUri(profilePicture);
+            cloudResponse = await cloudinary.uploader.upload(fileUri);
+        }
+
+        const user = await User.findById(userId).select('-password');
+        if (!user) {
+            return res.status(404).json({
+                message: 'User not found.',
+                success: false
+            });
+        };
+        if (bio) user.bio = bio;
+        if (gender) user.gender = gender;
+        if (profilePicture) user.profilePicture = cloudResponse.secure_url;
+
+        await user.save();
+
+        return res.status(200).json({
+            message: 'Profile updated.',
+            success: true,
+            user
+        });
 
     } catch (error) {
         console.log(error);
